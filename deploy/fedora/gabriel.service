@@ -1,0 +1,14 @@
+# systemd user unit for the Gabriel receiver.
+# Install: see deploy/fedora/README.md
+[Unit]
+Description=Gabriel group-chat receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.venvs/gabriel/bin/gabriel recv
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

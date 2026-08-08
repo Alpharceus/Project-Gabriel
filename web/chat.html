@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Gabriel</title>
+<style>
+  :root {
+    --bg: #f4f4f6; --panel: #ffffff; --text: #1c1c22; --muted: #71717c;
+    --accent: #3556c7; --accent-text: #ffffff; --bubble: #ffffff;
+    --border: #dcdce2; --ok: #2e9e5b; --bad: #c94f3d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131318; --panel: #1d1d25; --text: #e8e8ee; --muted: #8f8f9c;
+      --accent: #5b7de0; --accent-text: #ffffff; --bubble: #24242e;
+      --border: #30303c; --ok: #46bd77; --bad: #d96a58;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  header h1 { font-size: 17px; font-weight: 650; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); flex: none; }
+  #dot.on { background: var(--ok); }
+  #whoami {
+    margin-left: auto; font-size: 12px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
+  }
+  #gear {
+    background: none; border: none; font-size: 18px; cursor: pointer;
+    color: var(--muted); padding: 2px 4px;
+  }
+  #feed { flex: 1; overflow-y: auto; padding: 14px 12px 6px; }
+  .day {
+    text-align: center; font-size: 11.5px; color: var(--muted);
+    margin: 14px 0 8px; text-transform: uppercase; letter-spacing: .06em;
+  }
+  .msg { display: flex; flex-direction: column; align-items: flex-start; margin: 3px 0; }
+  .msg.mine { align-items: flex-end; }
+  .meta { font-size: 11.5px; color: var(--muted); margin: 6px 6px 2px; }
+  .bubble {
+    max-width: 78%; padding: 7px 12px; border-radius: 16px;
+    background: var(--bubble); border: 1px solid var(--border);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .mine .bubble { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .bubble a { color: inherit; text-decoration: underline; }
+  footer {
+    display: flex; gap: 8px; align-items: flex-end;
+    padding: 10px 12px; background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  #box {
+    flex: 1; resize: none; max-height: 120px;
+    font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 18px; padding: 8px 14px;
+    outline: none;
+  }
+  #box:focus { border-color: var(--accent); }
+  #sendbtn {
+    flex: none; border: none; border-radius: 50%; width: 38px; height: 38px;
+    background: var(--accent); color: var(--accent-text);
+    font-size: 17px; cursor: pointer;
+  }
+  #sendbtn:disabled { opacity: .5; }
+  #settings {
+    position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  #settings[hidden] { display: none; }
+  #settings form {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px; width: 100%; max-width: 360px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #settings h2 { font-size: 16px; }
+  #settings label { font-size: 12.5px; color: var(--muted); }
+  #settings input {
+    width: 100%; font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; outline: none;
+  }
+  #settings input:focus { border-color: var(--accent); }
+  #settings button {
+    font: inherit; font-weight: 600; border: none; border-radius: 8px;
+    padding: 9px; background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  .empty { text-align: center; color: var(--muted); margin-top: 40px; font-size: 13.5px; }
+</style>
+</head>
+<body>
+<header>
+  <span id="dot" title="disconnected"></span>
+  <h1>Gabriel</h1>
+  <span id="whoami"></span>
+  <button id="gear" title="Settings">⚙</button>
+</header>
+<main id="feed"></main>
+<footer>
+  <textarea id="box" rows="1" placeholder="Message…" enterkeyhint="send"></textarea>
+  <button id="sendbtn" title="Send">➤</button>
+</footer>
+
+<div id="settings" hidden>
+  <form id="setform">
+    <h2>Gabriel settings</h2>
+    <div><label>Server</label><input id="in-server" placeholder="https://ntfy.sh"></div>
+    <div><label>Topic (the group secret)</label><input id="in-topic" autocomplete="off"></div>
+    <div><label>My name (src) — e.g. phone, win</label><input id="in-src" autocomplete="off"></div>
+    <button type="submit">Save</button>
+  </form>
+</div>
+
+<script>
+"use strict";
+/* Gabriel web client: a thin envelope-aware wrapper around one ntfy topic.
+   History = ntfy cache (~12h); the canonical archive stays in the PC DBs. */
+
+const $ = id => document.getElementById(id);
+const store = {
+  get server() { return localStorage.getItem("gabriel_server") || "https://ntfy.sh"; },
+  get topic()  { return localStorage.getItem("gabriel_topic") || ""; },
+  get src()    { return localStorage.getItem("gabriel_src") || ""; },
+  set(server, topic, src) {
+    localStorage.setItem("gabriel_server", server.replace(/\/+$/, ""));
+    localStorage.setItem("gabriel_topic", topic.trim());
+    localStorage.setItem("gabriel_src", src.trim());
+  },
+};
+
+// One-time setup links: chat.html#t=<topic>&s=<src>[&srv=<server>]
+(function fromHash() {
+  if (!location.hash) return;
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("t")) store.set(h.get("srv") || store.server, h.get("t"), h.get("s") || store.src);
+  history.replaceState(null, "", location.pathname + location.search);
+})();
+
+const msgs = new Map();   // id -> envelope
+let es = null;
+
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();  // secure contexts only
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
+function parseEnvelope(ev) {
+  const raw = ev.message ?? "";
+  try {
+    const m = JSON.parse(raw);
+    if (m && typeof m === "object" && m.src && m.body !== undefined) {
+      return { id: m.id || ev.id, ts: m.ts || tsOf(ev), src: String(m.src),
+               kind: m.kind || "text", body: String(m.body) };
+    }
+  } catch {}
+  // Bare text (ntfy app share sheet / in-app compose) => phone
+  return { id: ev.id, ts: tsOf(ev), src: "phone", kind: "text", body: raw };
+}
+const tsOf = ev => new Date(ev.time * 1000).toISOString();
+
+function addMsg(m) {
+  if (!m.id || msgs.has(m.id)) return false;
+  msgs.set(m.id, m);
+  return true;
+}
+
+const escapeHtml = s => s.replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function linkify(body, kind) {
+  if (kind === "url") {
+    const u = escapeHtml(body.trim());
+    return `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+  }
+  return escapeHtml(body).replace(/https?:\/\/[^\s<]+/g,
+    u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+}
+
+function render() {
+  const feed = $("feed");
+  const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
+  const list = [...msgs.values()].sort((a, b) => a.ts.localeCompare(b.ts));
+  const frag = document.createDocumentFragment();
+  if (!list.length) {
+    const d = document.createElement("div");
+    d.className = "empty"; d.textContent = "No messages in the last ~12h.";
+    frag.appendChild(d);
+  }
+  let lastDay = "", lastKey = "";
+  for (const m of list) {
+    const dt = new Date(m.ts);
+    const day = dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    if (day !== lastDay) {
+      const d = document.createElement("div");
+      d.className = "day"; d.textContent = day;
+      frag.appendChild(d); lastDay = day; lastKey = "";
+    }
+    const mine = m.src === store.src;
+    const div = document.createElement("div");
+    div.className = "msg" + (mine ? " mine" : "");
+    const time = dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const key = m.src + "@" + time;
+    const meta = key === lastKey ? "" : `<div class="meta">${escapeHtml(m.src)} · ${time}</div>`;
+    div.innerHTML = `${meta}<div class="bubble">${linkify(m.body, m.kind)}</div>`;
+    frag.appendChild(div); lastKey = key;
+  }
+  feed.replaceChildren(frag);
+  if (stick) feed.scrollTop = feed.scrollHeight;
+}
+
+async function loadHistory() {
+  const r = await fetch(`${store.server}/${store.topic}/json?poll=1&since=all`);
+  if (!r.ok) throw new Error(`history: HTTP ${r.status}`);
+  let changed = false;
+  for (const line of (await r.text()).split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const ev = JSON.parse(line);
+      if (ev.event === "message") changed = addMsg(parseEnvelope(ev)) || changed;
+    } catch {}
+  }
+  if (changed) render();
+}
+
+function subscribe() {
+  if (es) es.close();
+  es = new EventSource(`${store.server}/${store.topic}/sse`);
+  es.onopen = () => { $("dot").classList.add("on"); $("dot").title = "connected"; };
+  es.onerror = () => { $("dot").classList.remove("on"); $("dot").title = "reconnecting…"; };
+  es.onmessage = e => {
+    try {
+      const ev = JSON.parse(e.data);
+      if (ev.event && ev.event !== "message") return;
+      if (addMsg(parseEnvelope(ev))) render();
+    } catch {}
+  };
+}
+
+async function sendMsg() {
+  const box = $("box");
+  const body = box.value.trim();
+  if (!body) return;
+  const kind = /^https?:\/\/\S+$/.test(body) ? "url" : "text";
+  const m = { v: 1, id: uuid(), ts: new Date().toISOString().slice(0, 19) + "+00:00",
+              src: store.src, kind, body };
+  const headers = { Title: store.src };
+  if (kind === "url") headers.Click = body;
+  $("sendbtn").disabled = true;
+  try {
+    const r = await fetch(`${store.server}/${store.topic}`,
+                          { method: "POST", headers, body: JSON.stringify(m) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    box.value = ""; box.style.height = "auto";
+    if (addMsg(m)) render();
+  } catch (err) {
+    alert("Send failed: " + err.message);
+  } finally {
+    $("sendbtn").disabled = false;
+    box.focus();
+  }
+}
+
+function start() {
+  if (!store.topic || !store.src) { openSettings(); return; }
+  $("settings").hidden = true;
+  $("whoami").textContent = store.src;
+  msgs.clear(); render();
+  loadHistory().catch(() => {});
+  subscribe();
+}
+
+function openSettings() {
+  $("in-server").value = store.server;
+  $("in-topic").value = store.topic;
+  $("in-src").value = store.src;
+  $("settings").hidden = false;
+}
+
+$("gear").onclick = openSettings;
+$("setform").onsubmit = e => {
+  e.preventDefault();
+  store.set($("in-server").value || "https://ntfy.sh", $("in-topic").value, $("in-src").value);
+  if (store.topic && store.src) start();
+};
+$("sendbtn").onclick = sendMsg;
+$("box").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+});
+$("box").addEventListener("input", e => {
+  e.target.style.height = "auto";
+  e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+});
+// Mobile browsers freeze EventSource in the background; catch up on return.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && store.topic) {
+    loadHistory().catch(() => {});
+    if (!es || es.readyState === EventSource.CLOSED) subscribe();
+  }
+});
+
+start();
+</script>
+</body>
+</html>

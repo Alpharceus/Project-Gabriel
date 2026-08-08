@@ -1,0 +1,6 @@
+__pycache__/
+*.egg-info/
+*.db
+.venv/
+config.toml
+gabriel-plan.md
