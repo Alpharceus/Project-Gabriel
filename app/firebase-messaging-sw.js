@@ -4,7 +4,7 @@
    — the push payload itself is ciphertext end to end.
    Also caches the app shell so the PWA installs and opens offline. */
 
-const SHELL_CACHE = "gabriel-shell-v2";
+const SHELL_CACHE = "gabriel-shell-v3";
 const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/crypto.js",
                "/db.js", "/config.js", "/manifest.webmanifest",
                "/icons/icon-192.png", "/icons/icon-512.png"];
@@ -64,7 +64,13 @@ self.addEventListener("push", e => {
   e.waitUntil((async () => {
     const raw = e.data?.json() ?? {};
     const data = raw.data || raw;           // FCM wraps data messages
-    if (!data.ct) return;
+    if (!data.ct) {
+      // Unexpected payload shape — surface it instead of dropping silently.
+      return self.registration.showNotification("Gabriel (debug)", {
+        body: "unrecognized push payload: " + JSON.stringify(raw).slice(0, 140),
+        icon: "/icons/icon-192.png",
+      });
+    }
 
     // If the app is open and focused, the live feed already shows it.
     const wins = await clients.matchAll({ type: "window", includeUncontrolled: true });
