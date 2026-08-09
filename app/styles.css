@@ -171,6 +171,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: .92em; }
 .iconbtn.send:not(:disabled):active { transform: scale(.92); }
 
 /* ── Settings sheet ── */
+#sheet[hidden], #sheet-backdrop[hidden], #toast[hidden] { display: none; }
 #sheet-backdrop {
   position: fixed; inset: 0; z-index: 9;
   background: rgba(10, 10, 18, .45);

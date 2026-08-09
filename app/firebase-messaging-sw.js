@@ -4,7 +4,7 @@
    — the push payload itself is ciphertext end to end.
    Also caches the app shell so the PWA installs and opens offline. */
 
-const SHELL_CACHE = "gabriel-shell-v1";
+const SHELL_CACHE = "gabriel-shell-v2";
 const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/crypto.js",
                "/db.js", "/config.js", "/manifest.webmanifest",
                "/icons/icon-192.png", "/icons/icon-512.png"];
