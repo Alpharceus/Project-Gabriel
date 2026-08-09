@@ -48,6 +48,17 @@ if ("serviceWorker" in navigator) {
 }
 
 /* ── Local settings ─────────────────────────────────────────────── */
+// One-time setup links: /#k=<e2e key>&s=<device name>. The fragment never
+// reaches any server; it's saved locally and stripped from the URL.
+async function bootstrapFromHash() {
+  if (!location.hash) return;
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("k")) {
+    await settings.set(h.get("s") || settings.src || "phone", h.get("k"));
+  }
+  history.replaceState(null, "", location.pathname);
+}
+
 const settings = {
   get src() { return localStorage.getItem("gabriel_src") || ""; },
   get key() { return localStorage.getItem("gabriel_key") || ""; },
@@ -247,6 +258,7 @@ box.addEventListener("keydown", e => {
 });
 $("sendbtn").onclick = sendMsg;
 
+await bootstrapFromHash();
 onAuthStateChanged(auth, user => {
   if (!user) { show("screen-login"); if (unsub) { unsub(); unsub = null; } }
   else if (!settings.src || !settings.key) show("screen-setup");
