@@ -3,6 +3,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+  setPersistence, browserLocalPersistence,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, setDoc, query, orderBy, limit,
@@ -36,6 +37,8 @@ try {
   throw err;
 }
 const auth = getAuth(fbApp);
+// Stay signed in until an explicit sign-out (survives restarts and updates).
+await setPersistence(auth, browserLocalPersistence).catch(() => {});
 const fs = getFirestore(fbApp);
 
 let swReg = null;

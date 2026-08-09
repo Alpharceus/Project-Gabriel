@@ -3,7 +3,7 @@
 // Fill after project setup: Firebase console → Project settings →
 // Cloud Messaging → Web Push certificates → key pair.
 export const CONFIG = {
-  vapidKey: "",
+  vapidKey: "BErHO6kVPQ9Wz2Y3dbzC60Rbt4aoY6yGtEPFEti11UttVz-jUmLiGzx_2HQfYa5gXp-4jzRAHCOVSD5Ehd5fhoU",
   // Optional override when NOT hosted on Firebase Hosting:
   // firebase: { apiKey: "...", authDomain: "...", projectId: "...",
   //             messagingSenderId: "...", appId: "..." },

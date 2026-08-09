@@ -7,3 +7,4 @@ gabriel-plan.md
 node_modules/
 .firebase/
 serviceAccount*.json
+*firebase-adminsdk*.json
