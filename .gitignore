@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 config.toml
 gabriel-plan.md
+node_modules/
+.firebase/
+serviceAccount*.json

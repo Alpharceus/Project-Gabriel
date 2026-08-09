@@ -1,0 +1,11 @@
+{
+  "name": "gabriel-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.0"
+  }
+}

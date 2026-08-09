@@ -3,7 +3,7 @@ name = "gabriel"
 version = "0.1.0"
 description = "A group chat for one person's devices and agents, over ntfy"
 requires-python = ">=3.11"
-dependencies = ["requests"]
+dependencies = ["firebase-admin", "cryptography"]
 
 [project.scripts]
 gabriel = "gabriel.cli:main"

@@ -1,8 +1,8 @@
 """Config loading. One file per machine: ~/.config/gabriel/config.toml.
 
-Machines differ only in `src` (and maybe the DB path). Everything is
-overridable by env var: GABRIEL_CONFIG, GABRIEL_SERVER, GABRIEL_TOPIC,
-GABRIEL_SRC, GABRIEL_DB.
+v3 (Firebase backend). Machines differ only in `src` (and maybe the DB
+path). Everything is overridable by env var: GABRIEL_CONFIG, GABRIEL_SRC,
+GABRIEL_KEY, GABRIEL_PROJECT, GABRIEL_CREDENTIALS, GABRIEL_DB.
 """
 
 import os
@@ -11,14 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".config" / "gabriel"
-DEFAULT_SERVER = "https://ntfy.sh"
 
 
 @dataclass(frozen=True)
 class Config:
-    server: str
-    topic: str
     src: str
+    key: str          # base64url 256-bit E2E key (gabriel keygen)
+    project: str      # Firebase project id
+    credentials: Path  # service-account JSON for the Admin SDK
     db: Path
 
 
@@ -28,13 +28,23 @@ def load() -> Config:
     if path.exists():
         with open(path, "rb") as f:
             data = tomllib.load(f)
-    server = os.environ.get("GABRIEL_SERVER", data.get("server", DEFAULT_SERVER)).rstrip("/")
-    topic = os.environ.get("GABRIEL_TOPIC", data.get("topic", ""))
-    src = os.environ.get("GABRIEL_SRC", data.get("src", ""))
-    db = Path(os.environ.get("GABRIEL_DB", data.get("db", path.parent / "gabriel.db")))
-    if not topic or not src:
+
+    def field(env: str, name: str, default=""):
+        return os.environ.get(env, data.get(name, default))
+
+    src = field("GABRIEL_SRC", "src")
+    key = field("GABRIEL_KEY", "key")
+    project = field("GABRIEL_PROJECT", "project")
+    credentials = field("GABRIEL_CREDENTIALS", "credentials",
+                        str(path.parent / "serviceAccount.json"))
+    db = Path(field("GABRIEL_DB", "db", str(path.parent / "gabriel.db")))
+
+    missing = [n for n, v in
+               [("src", src), ("key", key), ("project", project)] if not v]
+    if missing:
         raise RuntimeError(
-            f"gabriel config incomplete: need 'topic' and 'src' in {path} "
-            "(or GABRIEL_TOPIC / GABRIEL_SRC env vars)"
+            f"gabriel config incomplete: missing {', '.join(missing)} in {path} "
+            "(or the GABRIEL_* env vars)"
         )
-    return Config(server=server, topic=topic, src=src, db=db)
+    return Config(src=src, key=key, project=project,
+                  credentials=Path(os.path.expanduser(credentials)), db=db)

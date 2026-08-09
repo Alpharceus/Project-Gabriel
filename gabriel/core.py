@@ -1,121 +1,122 @@
-"""Gabriel core: send() and receive_loop().
+"""Gabriel core v3: send() and receive_loop() over Firebase.
+
+Firestore is the bus and the permanent archive; FCM pushes to registered
+devices; everything in Firestore is E2E-encrypted (see crypto.py).
 
 Library boundary rules: nothing here imports cli, prints, or touches
-sys.argv. Pure Python, stdlib + requests, no platform conditionals.
+sys.argv. No platform conditionals.
+
+Firestore layout:
+  messages/{id}: {v: 3, id, ts, n, ct, sts: <server timestamp>}
+  devices/{token}: {token, name, updated}   # FCM push targets (the PWA)
 """
 
-import json
 import logging
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
 
-import requests
+import firebase_admin
+from firebase_admin import credentials as fb_credentials
+from firebase_admin import firestore, messaging
 
-from . import config, store
+from . import config, crypto, store
 
 log = logging.getLogger("gabriel")
 
-# ntfy sends a keepalive event roughly every 45s; silence beyond this means
-# the stream is dead even if the socket looks alive (sleep/suspend kill the
-# connection differently per OS — don't trust the socket).
-_READ_TIMEOUT = 90
-_CONNECT_TIMEOUT = 10
-_RECONNECT_DELAY = 5
+MESSAGES = "messages"
+DEVICES = "devices"
+
+
+def _client(cfg: config.Config):
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(
+            fb_credentials.Certificate(str(cfg.credentials)),
+            {"projectId": cfg.project},
+        )
+    return firestore.client()
 
 
 def send(body: str, kind: str = "text", src: str | None = None) -> str:
-    """Publish to the group topic. Returns the message id.
+    """Encrypt and publish to the group. Returns the message id.
 
-    Raises on failure; no retry, no queue — callers decide.
-    `src=None` falls back to config; the override is how agents label
-    themselves.
+    Raises if the Firestore write fails; push fan-out failures are logged,
+    not raised — the message is durable once written. `src=None` falls back
+    to config; the override is how agents label themselves.
     """
     cfg = config.load()
     src = src or cfg.src
-    msg = {
-        "v": 1,
-        "id": str(uuid.uuid4()),
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "src": src,
-        "kind": kind,
-        "body": body,
-    }
-    headers = {"Title": src}
-    if kind == "url":
-        headers["Click"] = body
-    resp = requests.post(
-        f"{cfg.server}/{cfg.topic}",
-        data=json.dumps(msg).encode(),
-        headers=headers,
-        timeout=(_CONNECT_TIMEOUT, _CONNECT_TIMEOUT),
+    msg_id = str(uuid.uuid4())
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    payload = {"src": src, "kind": kind, "body": body}
+    nonce, ct = crypto.encrypt(cfg.key, msg_id, payload)
+
+    db = _client(cfg)
+    db.collection(MESSAGES).document(msg_id).set({
+        "v": 3, "id": msg_id, "ts": ts, "n": nonce, "ct": ct,
+        "sts": firestore.SERVER_TIMESTAMP,
+    })
+    store.insert(cfg.db, {"id": msg_id, "ts": ts, **payload}, direction="out")
+
+    try:
+        _push(db, {"id": msg_id, "ts": ts, "n": nonce, "ct": ct})
+    except Exception:
+        log.exception("push fan-out failed (message is still delivered)")
+    return msg_id
+
+
+def _push(db, data: dict) -> None:
+    """FCM data-message fan-out to every registered device; the receiving
+    service worker decrypts and renders the notification. Dead tokens are
+    pruned."""
+    tokens = [d.id for d in db.collection(DEVICES).stream()]
+    if not tokens:
+        return
+    resp = messaging.send_each(
+        [messaging.Message(token=t, data=data) for t in tokens]
     )
-    resp.raise_for_status()
-    store.insert(cfg.db, msg, direction="out")
-    return msg["id"]
+    for token, r in zip(tokens, resp.responses):
+        if r.exception and isinstance(
+            r.exception, messaging.UnregisteredError
+        ):
+            db.collection(DEVICES).document(token).delete()
+            log.info("pruned dead device token %s…", token[:12])
+        elif r.exception:
+            log.warning("push to %s… failed: %s", token[:12], r.exception)
 
 
 def receive_loop() -> None:
-    """Subscribe to the group topic's JSON stream forever.
+    """Mirror the Firestore archive into the local DB, forever.
 
-    Logs everything except own messages (src == self) to the local DB.
-    Reconnects on any drop; a read timeout catches silently-dead sockets.
+    The snapshot listener replays the whole collection on (re)connect;
+    INSERT OR IGNORE makes that idempotent — and doubles as free catch-up
+    for anything missed while the machine slept.
     """
     cfg = config.load()
-    url = f"{cfg.server}/{cfg.topic}/json"
-    while True:
-        try:
-            log.info("connecting: %s (src=%s)", url, cfg.src)
-            with requests.get(
-                url, stream=True, timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT)
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    if line:
-                        _handle_line(cfg, line)
-        except Exception:
-            log.exception("stream dropped; reconnecting in %ss", _RECONNECT_DELAY)
-            time.sleep(_RECONNECT_DELAY)
+    db = _client(cfg)
+    wake = threading.Event()
 
+    def on_snapshot(snapshot, changes, read_time):
+        for change in changes:
+            if change.type.name not in ("ADDED", "MODIFIED"):
+                continue
+            doc = change.document.to_dict()
+            try:
+                payload = crypto.decrypt(cfg.key, doc["id"], doc["n"], doc["ct"])
+            except Exception:
+                log.warning("undecryptable message %s (wrong key?)", doc.get("id"))
+                continue
+            direction = "out" if payload["src"] == cfg.src else "in"
+            store.insert(cfg.db, {"id": doc["id"], "ts": doc["ts"], **payload},
+                         direction)
+            if direction == "in":
+                log.info("in: %s: %s", payload["src"], payload["body"][:120])
 
-def _handle_line(cfg: config.Config, line: bytes) -> None:
-    event = json.loads(line)
-    if event.get("event") != "message":
-        return  # open / keepalive
-    msg = _parse_message(event)
-    # Own messages echo back on the stream: archive them as outbound instead
-    # of dropping, so sends that bypassed send() (e.g. the web UI) still land
-    # in the DB. INSERT OR IGNORE no-ops when send() already logged them.
-    direction = "out" if msg["src"] == cfg.src else "in"
-    store.insert(cfg.db, msg, direction)
-    if direction == "in":
-        log.info("in: %s: %s", msg["src"], msg["body"][:120])
-
-
-def _parse_message(event: dict) -> dict:
-    """Envelope if the body parses as one, else wrap bare text as a phone
-    message (share sheet / in-app compose sends raw text)."""
-    raw = event.get("message", "")
+    log.info("watching %s/%s (src=%s)", cfg.project, MESSAGES, cfg.src)
+    watch = db.collection(MESSAGES).on_snapshot(on_snapshot)
     try:
-        msg = json.loads(raw)
-        if isinstance(msg, dict) and "src" in msg and "body" in msg:
-            msg.setdefault("id", event["id"])
-            msg.setdefault("ts", _event_ts(event))
-            msg.setdefault("kind", "text")
-            return msg
-    except (ValueError, TypeError):
-        pass
-    return {
-        "v": 1,
-        "id": event["id"],  # ntfy's id is stable across subscribers, so DBs converge
-        "ts": _event_ts(event),
-        "src": "phone",
-        "kind": "text",
-        "body": raw,
-    }
-
-
-def _event_ts(event: dict) -> str:
-    return datetime.fromtimestamp(event["time"], tz=timezone.utc).isoformat(
-        timespec="seconds"
-    )
+        while not wake.wait(60):
+            pass  # SDK handles reconnects; we just stay alive
+    finally:
+        watch.unsubscribe()

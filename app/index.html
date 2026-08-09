@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#4f6ae0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151520" media="(prefers-color-scheme: dark)">
+<title>Gabriel</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ══ Login ══ -->
+<section id="screen-login" class="screen center" hidden>
+  <form id="login-form" class="card">
+    <img src="icons/icon-192.png" alt="" class="logo">
+    <h1>Gabriel</h1>
+    <p class="sub">One feed for all your devices.</p>
+    <input id="login-email" type="email" placeholder="Email" autocomplete="username" required>
+    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p id="login-error" class="error" hidden></p>
+  </form>
+</section>
+
+<!-- ══ First-run setup ══ -->
+<section id="screen-setup" class="screen center" hidden>
+  <form id="setup-form" class="card">
+    <h1>Set up this device</h1>
+    <label>Device name <span class="hint">how your messages are labeled</span>
+      <input id="setup-src" placeholder="phone" autocomplete="off" required>
+    </label>
+    <label>Encryption key <span class="hint">from <code>gabriel keygen</code> — same on every device</span>
+      <input id="setup-key" placeholder="base64 key" autocomplete="off" required>
+    </label>
+    <button class="btn primary" type="submit">Start chatting</button>
+    <p id="setup-error" class="error" hidden></p>
+  </form>
+</section>
+
+<!-- ══ Chat ══ -->
+<section id="screen-chat" class="screen chat" hidden>
+  <header>
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="">
+      <div>
+        <h1>Gabriel</h1>
+        <span id="conn" class="conn">connecting…</span>
+      </div>
+    </div>
+    <button id="btn-settings" class="iconbtn" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7zm7.4-2.6c.04-.3.07-.59.07-.9s-.03-.6-.07-.9l2.03-1.58a.5.5 0 0 0 .12-.63l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.4.96a7.3 7.3 0 0 0-1.55-.9l-.36-2.55A.5.5 0 0 0 14.22 2h-3.84a.5.5 0 0 0-.5.42l-.36 2.55c-.55.23-1.07.53-1.55.9l-2.4-.96a.5.5 0 0 0-.6.22L3.05 8.45a.5.5 0 0 0 .12.63L5.2 10.66c-.04.3-.07.59-.07.9s.03.6.07.9l-2.03 1.58a.5.5 0 0 0-.12.63l1.92 3.32c.13.23.39.32.6.22l2.4-.96c.48.37 1 .67 1.55.9l.36 2.55c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.55c.55-.23 1.07-.53 1.55-.9l2.4.96c.21.1.47.01.6-.22l1.92-3.32a.5.5 0 0 0-.12-.63l-2.03-1.58z"/></svg>
+    </button>
+  </header>
+
+  <main id="feed" aria-live="polite"></main>
+
+  <footer class="composer">
+    <textarea id="box" rows="1" placeholder="Message…" enterkeyhint="send"></textarea>
+    <button id="sendbtn" class="iconbtn send" title="Send" aria-label="Send" disabled>
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3.4 20.4 20.85 12 3.4 3.6l.01 6.53L15 12 3.41 13.87z"/></svg>
+    </button>
+  </footer>
+</section>
+
+<!-- ══ Settings sheet ══ -->
+<div id="sheet-backdrop" hidden></div>
+<aside id="sheet" hidden>
+  <div class="grip"></div>
+  <h2>Settings</h2>
+  <div class="row">
+    <div><strong id="set-src-label"></strong><br><span class="hint" id="set-email-label"></span></div>
+  </div>
+  <button id="btn-notify" class="btn">Enable notifications on this device</button>
+  <button id="btn-edit-setup" class="btn">Change device name / key</button>
+  <button id="btn-signout" class="btn danger">Sign out</button>
+  <p class="hint about">End-to-end encrypted · Firestore archive · <span id="about-ver"></span></p>
+</aside>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

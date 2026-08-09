@@ -20,7 +20,14 @@ def main(argv=None) -> None:
     p_recv = sub.add_parser("recv", help="run the receiver loop (foreground)")
     p_recv.add_argument("--logfile", default=None, help="log to this file instead of stderr")
 
+    sub.add_parser("keygen", help="generate a new E2E key for the config files")
+
     args = p.parse_args(argv)
+
+    if args.cmd == "keygen":
+        from . import crypto
+        print(crypto.generate_key())
+        return
 
     if args.cmd == "send":
         print(core.send(" ".join(args.body), kind=args.kind))
