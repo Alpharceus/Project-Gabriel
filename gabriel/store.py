@@ -23,15 +23,17 @@ def _connect(db_path) -> sqlite3.Connection:
     return conn
 
 
-def insert(db_path, msg: dict, direction: str) -> None:
+def insert(db_path, msg: dict, direction: str) -> bool:
+    """Returns True if the row was newly inserted (False = already seen)."""
     conn = _connect(db_path)
     try:
         with conn:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT OR IGNORE INTO messages (id, ts, src, kind, body, direction)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (msg["id"], msg["ts"], msg["src"], msg["kind"], msg["body"], direction),
             )
+            return cur.rowcount == 1
     finally:
         conn.close()
 

@@ -86,6 +86,14 @@ def _push(db, data: dict) -> None:
             log.warning("push to %s… failed: %s", token[:12], r.exception)
 
 
+def _age_seconds(ts: str) -> float:
+    try:
+        return abs((datetime.now(timezone.utc)
+                    - datetime.fromisoformat(ts)).total_seconds())
+    except ValueError:
+        return float("inf")
+
+
 def receive_loop() -> None:
     """Mirror the Firestore archive into the local DB, forever.
 
@@ -108,10 +116,20 @@ def receive_loop() -> None:
                 log.warning("undecryptable message %s (wrong key?)", doc.get("id"))
                 continue
             direction = "out" if payload["src"] == cfg.src else "in"
-            store.insert(cfg.db, {"id": doc["id"], "ts": doc["ts"], **payload},
-                         direction)
-            if direction == "in":
+            fresh = store.insert(cfg.db, {"id": doc["id"], "ts": doc["ts"], **payload},
+                                 direction)
+            if fresh and direction == "in":
                 log.info("in: %s: %s", payload["src"], payload["body"][:120])
+            # Relay push: web-client sends can't do FCM fan-out themselves
+            # (that needs admin credentials), so the receiver pushes on their
+            # behalf. Notification tag = id dedupes against sender-side pushes;
+            # the age gate stops replay storms after downtime.
+            if fresh and _age_seconds(doc["ts"]) < 120:
+                try:
+                    _push(db, {"id": doc["id"], "ts": doc["ts"],
+                               "n": doc["n"], "ct": doc["ct"]})
+                except Exception:
+                    log.exception("relay push failed for %s", doc["id"])
 
     log.info("watching %s/%s (src=%s)", cfg.project, MESSAGES, cfg.src)
     watch = db.collection(MESSAGES).on_snapshot(on_snapshot)
