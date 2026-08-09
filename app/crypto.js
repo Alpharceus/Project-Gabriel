@@ -11,8 +11,13 @@ export const b64ToBytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 export const bytesToB64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
 
 export async function importKey(keyB64u) {
-  const raw = b64uToBytes(keyB64u);
-  if (raw.length !== 32) throw new Error("key must be 32 bytes");
+  let raw;
+  try {
+    raw = b64uToBytes(keyB64u);
+  } catch {
+    throw new Error("not valid base64");
+  }
+  if (raw.length !== 32) throw new Error(`decodes to ${raw.length} bytes, need 32`);
   return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 

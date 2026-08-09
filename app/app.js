@@ -221,15 +221,26 @@ $("login-form").onsubmit = async e => {
   }
 };
 
+// Accept the bare key, the whole setup link, or sloppy copies (whitespace,
+// line wraps). Extracts k=… if present, then strips everything non-base64.
+function normalizeKey(input) {
+  let s = input.trim();
+  const m = s.match(/[#&?]k=([^&\s]+)/);
+  if (m) s = m[1];
+  return s.replace(/[^A-Za-z0-9_\-+/=]/g, "");
+}
+
 $("setup-form").onsubmit = async e => {
   e.preventDefault();
   $("setup-error").hidden = true;
+  const key = normalizeKey($("setup-key").value);
   try {
-    await importKey($("setup-key").value.trim());  // validate before saving
-    await settings.set($("setup-src").value, $("setup-key").value);
+    await importKey(key);  // validate before saving
+    await settings.set($("setup-src").value, key);
     startChat();
-  } catch {
-    $("setup-error").textContent = "That key isn't a valid 32-byte base64 key.";
+  } catch (err) {
+    $("setup-error").textContent =
+      `Key didn't validate (${err.message}). Paste the key alone or the whole setup link.`;
     $("setup-error").hidden = false;
   }
 };
