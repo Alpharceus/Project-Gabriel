@@ -7,7 +7,7 @@ from . import config, core, store
 
 
 def main(argv=None) -> None:
-    p = argparse.ArgumentParser(prog="gabriel", description="Device group chat over ntfy")
+    p = argparse.ArgumentParser(prog="gabriel", description="Device group chat over Firebase")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     p_send = sub.add_parser("send", help="send a message to the group")

@@ -1,7 +1,7 @@
 [project]
 name = "gabriel"
 version = "0.1.0"
-description = "A group chat for one person's devices and agents, over ntfy"
+description = "A group chat for one person's devices and agents — E2E-encrypted over Firebase"
 requires-python = ">=3.11"
 dependencies = ["firebase-admin", "cryptography"]
 

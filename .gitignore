@@ -3,7 +3,7 @@ __pycache__/
 *.db
 .venv/
 config.toml
-gabriel-plan.md
+gabriel-*.md
 node_modules/
 .firebase/
 serviceAccount*.json
