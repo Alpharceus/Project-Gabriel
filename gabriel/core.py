@@ -97,42 +97,97 @@ def _age_seconds(ts: str) -> float:
 def receive_loop() -> None:
     """Mirror the Firestore archive into the local DB, forever.
 
-    The snapshot listener replays the whole collection on (re)connect;
-    INSERT OR IGNORE makes that idempotent — and doubles as free catch-up
-    for anything missed while the machine slept.
+    First run has no cursor, so the snapshot listener replays the whole
+    collection — that's how a fresh archive gets populated. After that we
+    resume from the last-seen `sts`, so restarts only pull what's new;
+    INSERT OR IGNORE still makes everything idempotent, including the
+    catch-up for anything missed while the machine slept. Once a cursor
+    exists, docs lacking `sts` are invisible to the filtered query — both
+    writers always set it, but e.g. console-written docs would not mirror.
     """
     cfg = config.load()
     db = _client(cfg)
     wake = threading.Event()
 
-    def on_snapshot(snapshot, changes, read_time):
-        for change in changes:
-            if change.type.name not in ("ADDED", "MODIFIED"):
-                continue
-            doc = change.document.to_dict()
-            try:
-                payload = crypto.decrypt(cfg.key, doc["id"], doc["n"], doc["ct"])
-            except Exception:
-                log.warning("undecryptable message %s (wrong key?)", doc.get("id"))
-                continue
-            direction = "out" if payload["src"] == cfg.src else "in"
-            fresh = store.insert(cfg.db, {"id": doc["id"], "ts": doc["ts"], **payload},
-                                 direction)
-            if fresh and direction == "in":
-                log.info("in: %s: %s", payload["src"], payload["body"][:120])
-            # Relay push: web-client sends can't do FCM fan-out themselves
-            # (that needs admin credentials), so the receiver pushes on their
-            # behalf. Notification tag = id dedupes against sender-side pushes;
-            # the age gate stops replay storms after downtime.
-            if fresh and _age_seconds(doc["ts"]) < 120:
-                try:
-                    _push(db, {"id": doc["id"], "ts": doc["ts"],
-                               "n": doc["n"], "ct": doc["ct"]})
-                except Exception:
-                    log.exception("relay push failed for %s", doc["id"])
+    cursor_str = store.get_meta(cfg.db, "sts_cursor")
+    cursor = datetime.fromisoformat(cursor_str) if cursor_str else None
 
-    log.info("watching %s/%s (src=%s)", cfg.project, MESSAGES, cfg.src)
-    watch = db.collection(MESSAGES).on_snapshot(on_snapshot)
+    col = db.collection(MESSAGES)
+    if cursor:
+        # >= (not >) is deliberate: isoformat round-trip truncates the
+        # server timestamp's nanoseconds to microseconds, so the doc at the
+        # cursor itself must be re-requested; INSERT OR IGNORE dedupes it.
+        target = col.where(
+            filter=firestore.FieldFilter("sts", ">=", cursor)).order_by("sts")
+    else:
+        target = col
+
+    # Cursor safety: a doc that consumed a read but never reached the DB
+    # (wrong key, malformed fields, sqlite error) must stay ahead of the
+    # persisted cursor, or a restart skips it forever. failed_floor is the
+    # oldest such doc's sts for the whole run — a poison doc from an early
+    # batch is never redelivered, so later clean batches must not pass it.
+    # A failed doc with no usable sts freezes the cursor for the run.
+    max_ok = None
+    failed_floor = None
+    cursor_stuck = False
+
+    def on_snapshot(snapshot, changes, read_time):
+        nonlocal cursor, max_ok, failed_floor, cursor_stuck
+        try:
+            for change in changes:
+                if change.type.name not in ("ADDED", "MODIFIED"):
+                    continue
+                doc = change.document.to_dict()
+                sts = doc.get("sts")
+                if not isinstance(sts, datetime):
+                    sts = None
+                try:
+                    payload = crypto.decrypt(cfg.key, doc["id"], doc["n"], doc["ct"])
+                    direction = "out" if payload["src"] == cfg.src else "in"
+                    fresh = store.insert(cfg.db,
+                                         {"id": doc["id"], "ts": doc["ts"], **payload},
+                                         direction)
+                except Exception:
+                    log.warning("unprocessable message %s (wrong key or malformed?)",
+                                doc.get("id"))
+                    if sts is None:
+                        cursor_stuck = True
+                    elif failed_floor is None or sts < failed_floor:
+                        failed_floor = sts
+                    continue
+                if sts is not None and (max_ok is None or sts > max_ok):
+                    max_ok = sts
+                if fresh and direction == "in":
+                    log.info("in: %s: %s", payload["src"], payload["body"][:120])
+                # Relay push: web-client sends can't do FCM fan-out themselves
+                # (that needs admin credentials), so the receiver pushes on their
+                # behalf. Notification tag = id dedupes against sender-side pushes;
+                # the age gate stops replay storms after downtime.
+                if fresh and _age_seconds(doc["ts"]) < 120:
+                    try:
+                        _push(db, {"id": doc["id"], "ts": doc["ts"],
+                                   "n": doc["n"], "ct": doc["ct"]})
+                    except Exception:
+                        log.exception("relay push failed for %s", doc["id"])
+            if cursor_stuck or max_ok is None:
+                return
+            candidate = max_ok if failed_floor is None else min(failed_floor, max_ok)
+            if candidate != cursor:
+                cursor = candidate
+                store.set_meta(cfg.db, "sts_cursor", candidate.isoformat())
+        except Exception:
+            # The SDK's consumer thread dies on an escaped exception while
+            # receive_loop keeps running, deaf. Never let a batch kill it.
+            log.exception("snapshot batch failed (listener kept alive)")
+
+    if cursor:
+        log.info("watching %s/%s (src=%s), resuming from cursor %s",
+                 cfg.project, MESSAGES, cfg.src, cursor.isoformat())
+    else:
+        log.info("watching %s/%s (src=%s), full replay (no cursor yet)",
+                 cfg.project, MESSAGES, cfg.src)
+    watch = target.on_snapshot(on_snapshot)
     try:
         while not wake.wait(60):
             pass  # SDK handles reconnects; we just stay alive

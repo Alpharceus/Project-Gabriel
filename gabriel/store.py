@@ -1,5 +1,6 @@
-"""Per-machine SQLite history. One table; INSERT OR IGNORE on id dedupes
-reconnect/catch-up overlap."""
+"""Per-machine SQLite history. INSERT OR IGNORE on id dedupes reconnect/
+catch-up overlap. A tiny meta key-value table rides alongside for things
+like the receive-loop's read cursor."""
 
 import sqlite3
 from pathlib import Path
@@ -12,6 +13,10 @@ CREATE TABLE IF NOT EXISTS messages (
     kind      TEXT NOT NULL,
     body      TEXT NOT NULL,
     direction TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
 )
 """
 
@@ -19,7 +24,7 @@ CREATE TABLE IF NOT EXISTS messages (
 def _connect(db_path) -> sqlite3.Connection:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.execute(_SCHEMA)
+    conn.executescript(_SCHEMA)
     return conn
 
 
@@ -50,3 +55,27 @@ def recent(db_path, n: int = 20) -> list[tuple]:
     finally:
         conn.close()
     return list(reversed(rows))
+
+
+def get_meta(db_path, key: str) -> str | None:
+    """Returns the stored value for key, or None if unset."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = ?", (key,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
+
+
+def set_meta(db_path, key: str, value: str) -> None:
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+    finally:
+        conn.close()
